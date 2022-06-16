@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -e
+
+platforms=("windows/amd64" "linux/amd64")
+packages=("./pkg")
+
+for platform in "${platforms[@]}"
+do
+    platform_split=(${platform//\// })
+    GOOS=${platform_split[0]}
+    GOARCH=${platform_split[1]}
+    for package in "${packages[@]}"
+    do
+        echo "Generating $package for $platform"
+        buildPath="./build/$GOOS-$GOARCH"
+        mkdir -p $buildPath
+        name='tdiff'
+        if [ $GOOS = "windows" ]; then
+            name+='.exe'
+        fi
+        env GOOS=$GOOS GOARCH=$GOARCH go build -o ./$buildPath/$name $package
+    done
+done
