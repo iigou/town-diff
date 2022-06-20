@@ -19,6 +19,8 @@ func main() {
 
 	log.Println("Starting webservice")
 
+	pkg.CreateDBConnection()
+
 	srv := &http.Server{
 		Addr: "0.0.0.0:8080",
 		// Good practice to set timeouts to avoid Slowloris attacks.

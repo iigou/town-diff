@@ -1,0 +1,9 @@
+{
+    "db": {
+        "url": "172.18.0.2",
+        "port": "3306",
+        "name": "tdiff",
+        "user": "tdiff",
+        "pwd": "dGRpZmY="
+    }
+}

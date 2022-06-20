@@ -1,0 +1,22 @@
+services:
+  db:
+    image: mysql
+    environment:
+      MYSQL_DATABASE: 'tdiff'
+      MYSQL_USER: 'tdiff'
+      MYSQL_PASSWORD: 'tdiff'
+      MYSQL_ROOT_PASSWORD: 'root'
+    ports:
+      - '3306:3306'
+    expose:
+      - '3306'
+    volumes:
+      - tdiffDb:/var/lib/mysql
+  tdiff:
+    image: tdiff
+    restart: always
+    ports:
+      - 8080:8080
+volumes:
+  tdiffDb:
+    external: false
