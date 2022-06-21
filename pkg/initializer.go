@@ -26,13 +26,80 @@ type supplier func(body io.ReadCloser, pathVars map[string]string, queryParams u
 
 const apiPathName = "api"
 const townPathName = "town"
-const diffPathName = "diff"
 
 var dbConn *gorm.DB
-var townSvc api.ITownSvc = &internal.TownSvc{DbConnFn: GetDatabaseConnection}
-var townDiff api.ITownDiffSvc = &internal.TownDiff{}
+var townRepo = &internal.TownRepo{DbConnFn: GetDatabaseConnection}
+var townSvc api.ITownSvc = &internal.TownSvc{TownRepo: townRepo}
+
+/*
+InitRouters initializes the Rest routes handled by this application
+*/
+func InitRouters() http.Handler {
+	router := mux.NewRouter()
+	apiRoute := router.NewRoute().Name(apiPathName).PathPrefix("/" + apiPathName)
+	registerTownSvcRouters(apiRoute.Subrouter())
+	router.Use(mux.CORSMethodMiddleware(router))
+	router.Use(responseContentTypeMw)
+	return handlers.LoggingHandler(os.Stdout, router)
+}
+
+/*
+CreateDBConnection create a new db connection, configured by the file config.json located in the same folder as the executable
+*/
+func CreateDBConnection() {
+
+	config, err := getConnectionConfig()
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("Connecting to ", config["url"], " with user ", config["user"])
+
+	db, err := gorm.Open(mysql.Open(fmt.Sprintf("%s:%s%s", config["user"], config["pwd"], config["url"])), &gorm.Config{})
+
+	if err != nil {
+		panic(err)
+	}
+
+	// Create the connection pool
+
+	sqlDB, err := db.DB()
+
+	sqlDB.SetConnMaxIdleTime(time.Minute * 5)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+	dbConn = db
+
+	log.Println("Migrating Town table")
+	dbConn.Set("gorm:table_options", "ENGINE=InnoDB").AutoMigrate(&api.Town{})
+
+}
+
+/*
+GetDatabaseConnection retrieves the active db connection
+*/
+func GetDatabaseConnection() (*gorm.DB, error) {
+	sqlDB, err := dbConn.DB()
+	if err != nil {
+		return dbConn, err
+	}
+	if err := sqlDB.Ping(); err != nil {
+		return dbConn, err
+	}
+	return dbConn, nil
+}
 
 func registerTownSvcRouters(r *mux.Router) {
+	r.
+		Name("GET diff between two towns").
+		Methods("GET").
+		PathPrefix("/" + townPathName + "/{home}/diff/{dest}").
+		HandlerFunc(handler(
+			func(body io.ReadCloser, pathVars map[string]string, queryParams url.Values) (interface{}, error) {
+				return townSvc.Diff(pathVars["home"], pathVars["dest"])
+			}))
+
 	r.
 		Name("get towns").
 		Methods("GET").
@@ -88,15 +155,7 @@ func registerTownSvcRouters(r *mux.Router) {
 			func(body io.ReadCloser, pathVars map[string]string, queryParams url.Values) (interface{}, error) {
 				return townSvc.Delete(pathVars["id"])
 			}))
-}
 
-func InitRouters() http.Handler {
-	router := mux.NewRouter()
-	apiRoute := router.NewRoute().Name(apiPathName).PathPrefix("/" + apiPathName)
-	registerTownSvcRouters(apiRoute.Subrouter())
-	router.Use(mux.CORSMethodMiddleware(router))
-	router.Use(responseContentTypeMw)
-	return handlers.LoggingHandler(os.Stdout, router)
 }
 
 func handler(supp supplier) func(http.ResponseWriter, *http.Request) {
@@ -124,55 +183,6 @@ func responseContentTypeMw(next http.Handler) http.Handler {
 		w.Header().Add("Content-Type", "application/json")
 		next.ServeHTTP(w, r)
 	})
-}
-
-func CreateDBConnection() {
-
-	config, err := getConnectionConfig()
-	if err != nil {
-		panic(err)
-	}
-
-	log.Println("Connecting to ", config["url"], " with user ", config["user"])
-
-	//user:pass@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local
-
-	db, err := gorm.Open(mysql.Open(fmt.Sprintf("%s:%s%s", config["user"], config["pwd"], config["url"])), &gorm.Config{})
-
-	if err != nil {
-		panic(err)
-	}
-
-	// Create the connection pool
-
-	sqlDB, err := db.DB()
-
-	sqlDB.SetConnMaxIdleTime(time.Minute * 5)
-
-	// SetMaxIdleConns sets the maximum number of connections in the idle connection pool.
-	sqlDB.SetMaxIdleConns(10)
-
-	// SetMaxOpenConns sets the maximum number of open connections to the database.
-	sqlDB.SetMaxOpenConns(100)
-
-	// SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	dbConn = db
-
-	log.Println("Migrating Town table")
-	dbConn.Set("gorm:table_options", "ENGINE=InnoDB").AutoMigrate(&api.Town{})
-
-}
-
-func GetDatabaseConnection() (*gorm.DB, error) {
-	sqlDB, err := dbConn.DB()
-	if err != nil {
-		return dbConn, err
-	}
-	if err := sqlDB.Ping(); err != nil {
-		return dbConn, err
-	}
-	return dbConn, nil
 }
 
 func getConnectionConfig() (map[string]string, error) {

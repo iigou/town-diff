@@ -17,6 +17,8 @@ COPY /pkg/internal/*.go ./pkg/internal/
 COPY *.go ./
 
 RUN go build -o /tdiff
+RUN go test -timeout 30s ./...
+
 
 ##
 ## Deploy

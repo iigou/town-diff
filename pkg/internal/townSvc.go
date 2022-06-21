@@ -1,58 +1,41 @@
 package internal
 
 import (
+	"math"
+
 	"github.com/iigou/town-diff/pkg/api"
-	"gorm.io/gorm"
 )
 
+/*
+TownSvc is the service exposing CRUD functionalities for a Town struct, as well as calculating the distance between two towns
+*/
 type TownSvc struct {
-	DbConnFn func() (*gorm.DB, error)
+	TownRepo api.ITownRepo
 }
 
+/*
+Get the towns matching the provided criteria
+*/
 func (t *TownSvc) Get(criteria *api.Town) ([]api.Town, error) {
-	db, err := t.DbConnFn()
-	if err != nil {
-		return nil, err
-	}
-	results := []api.Town{}
-	fields := []string{}
-	if len(criteria.Name) > 0 {
-		fields = append(fields, "name")
-
-	}
-	if criteria.Id > 0 {
-		fields = append(fields, "id")
-	}
-
-	if len(fields) > 0 {
-		db.Where(criteria, fields).Find(&results)
-	} else {
-		db.Find(&results)
-	}
-	return results, nil
+	return t.TownRepo.Get(criteria)
 }
 
+/*
+Save the provided town
+*/
 func (t *TownSvc) Save(town *api.Town) (*api.Town, error) {
-
-	db, err := t.DbConnFn()
-	if err != nil {
-		return nil, err
-	}
-	result := db.Create(town)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	return town, nil
+	return t.TownRepo.Save(town)
 }
 
+/*
+Update the town matching the townName, with the given town struct
+*/
 func (t *TownSvc) Update(townName string, town *api.Town) (*api.Town, error) {
-	db, err := t.DbConnFn()
+	towns, err := t.TownRepo.Get(&api.Town{Name: townName})
 	if err != nil {
 		return nil, err
 	}
 
-	towns := []api.Town{}
-	db.Where(&api.Town{Name: townName}, "name").Find(&towns)
 	if len(towns) == 0 {
 		return town, nil
 	}
@@ -62,25 +45,65 @@ func (t *TownSvc) Update(townName string, town *api.Town) (*api.Town, error) {
 	toUpdate.Lon = town.Lon
 	toUpdate.Name = town.Name
 
-	db.Model(&toUpdate).Updates(&toUpdate)
-
-	return &toUpdate, nil
+	return t.TownRepo.Update(&toUpdate)
 }
 
+/*
+Delete the town matching the townName
+*/
 func (t *TownSvc) Delete(townName string) (bool, error) {
-
-	db, err := t.DbConnFn()
+	towns, err := t.TownRepo.Get(&api.Town{Name: townName})
 	if err != nil {
 		return false, err
 	}
 
-	towns := []api.Town{}
-	db.Where(&api.Town{Name: townName}, "name").Find(&towns)
-
 	if len(towns) == 0 {
 		return true, nil
 	}
+	return t.TownRepo.Delete(&towns[0])
+}
 
-	result := db.Delete(towns[0])
-	return result.RowsAffected == 1, result.Error
+/*
+Diff calculates the kilometric distance between the given home and destination
+*/
+func (t *TownSvc) Diff(home string, destination string) (*api.DiffResult, error) {
+
+	homeTowns, err := t.Get(&api.Town{Name: home})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(homeTowns) == 0 {
+		return nil, nil
+	}
+
+	destTowns, err := t.Get(&api.Town{Name: destination})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(destTowns) == 0 {
+		return nil, nil
+	}
+
+	return t.distance(&homeTowns[0], &destTowns[0]), nil
+}
+
+func (t *TownSvc) distance(home *api.Town, destination *api.Town) *api.DiffResult {
+	radHomeLat := float64(math.Pi * home.Lat / 180)
+	radDestLat := float64(math.Pi * destination.Lat / 180)
+
+	theta := float64(home.Lon - destination.Lon)
+	radtheta := float64(math.Pi * theta / 180)
+
+	dist := math.Sin(radHomeLat)*math.Sin(radDestLat) + math.Cos(radHomeLat)*math.Cos(radDestLat)*math.Cos(radtheta)
+	if dist > 1 {
+		dist = 1
+	}
+
+	dist = math.Acos(dist)
+	dist = dist * 180 / math.Pi
+	dist = dist * 60 * 1.1515
+
+	return &api.DiffResult{Distance: dist * 1.609344, Units: "kilometers"}
 }
